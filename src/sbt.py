@@ -83,6 +83,8 @@ def handle_command(debugger, command, exe_ctx, result, internal_dict):
 def symbolish_stack_trace_frame(debugger,target, thread):
     frame_string = ''
     idx = 0
+    # get executable path
+    path = get_executable_path_without_quotation(debugger)
 
     for f in thread.frames:
         function = f.GetFunction()
@@ -102,7 +104,10 @@ def symbolish_stack_trace_frame(debugger,target, thread):
                 if idx + 2 == len(thread.frames):
                     metholdName = 'main + ' + str(symbol_offset)
                 else:
-                    command_script = find_symbol_from_address_script(load_addr, modulePath)
+                    real_module_path = modulePath
+                    if "/Xcode/DerivedData" in modulePath:
+                        real_module_path = path
+                    command_script = find_symbol_from_address_script(load_addr, real_module_path)
                     one = utils.exe_script(debugger,command_script)
                     # is set the block file path
                     if BLOCK_JSON_FILE and len(BLOCK_JSON_FILE) > 0:
@@ -189,27 +194,37 @@ def find_block_symbol_from_adress(address):
     result = theSymbol + ' + ' + str(theDis)
     return result
 
-def is_main_module_from_address(target,debugger,address):
-    #  get moduleName of address
-    addr = target.ResolveLoadAddress(address)
-    moduleName = addr.module.file.basename
-    modulePath = str(addr.module.file)
+def get_executable_path(debugger):
     #  get executable path
     getExecutablePathScript = r''' 
     const char *path = (char *)[[[NSBundle mainBundle] executablePath] UTF8String];
     path
     '''
-    # is in executable path?
     path = utils.exe_script(debugger, getExecutablePathScript)
-    appDir = os.path.dirname(path.strip()[1:-1])
+    return path.strip()
 
+def get_executable_path_without_quotation(debugger):
+    return get_executable_path(debugger).replace('"', '')
+
+def is_main_module_from_address(target,debugger,address):
+    #  get moduleName of address
+    addr = target.ResolveLoadAddress(address)
+    moduleName = addr.module.file.basename
+    modulePath = str(addr.module.file)
+    # is in executable path?
+    path = get_executable_path_without_quotation(debugger)
+    appDir = os.path.dirname(path)
 
     if not moduleName or not str(path):
         return False
 
+    # MonkeyDev compatibility
+    if "/Xcode/DerivedData" in modulePath:
+        # compare binary name
+        return modulePath.split('/')[-1] == moduleName
+
     if appDir in modulePath:
         return True
-
     else:
         return False
 
